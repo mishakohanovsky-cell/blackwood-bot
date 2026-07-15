@@ -92,11 +92,21 @@ def append_history(user_id, role, text):
     save_json(HISTORY_FILE, hist_db)
 
 def ask_deepseek(user_id, prompt):
-    """Прямий HTTP-запит до DeepSeek API, в обхід проксі PythonAnywhere"""
+    """Запит до DeepSeek через бібліотеку openai (працює на Render)"""
     if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.startswith("sk-ТВІЙ"):
         return "Помилка: API-ключ DeepSeek не налаштовано. Передаю адміну."
 
     try:
+        from openai import OpenAI
+
+        # Створюємо клієнт один раз і кешуємо (простий спосіб)
+        if not hasattr(ask_deepseek, "_client"):
+            ask_deepseek._client = OpenAI(
+                api_key=DEEPSEEK_API_KEY,
+                base_url="https://api.deepseek.com"
+            )
+        client = ask_deepseek._client
+
         raw_hist = get_user_history(user_id)
         dynamic_system_prompt = SYSTEM_PROMPT + get_catalog_context()
 
@@ -106,39 +116,22 @@ def ask_deepseek(user_id, prompt):
             messages.append({"role": role, "content": msg["text"]})
         messages.append({"role": "user", "content": prompt})
 
-        # Формуємо тіло запиту
-        data = json.dumps({
-            "model": "deepseek-chat",
-            "messages": messages,
-            "temperature": 0.5,
-            "max_tokens": 500
-        }).encode("utf-8")
-
-        # Створюємо HTTPS-з'єднання напряму, без проксі
-        ctx = ssl.create_default_context()
-        from http.client import HTTPSConnection
-        conn = HTTPSConnection("api.deepseek.com", context=ctx, timeout=30)
-        conn.request(
-            "POST",
-            "/v1/chat/completions",
-            body=data,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                "Accept": "application/json"
-            }
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            temperature=0.5,
+            max_tokens=500
         )
-        response = conn.getresponse()
-        result = json.loads(response.read().decode("utf-8"))
-        conn.close()
 
-        reply_text = result["choices"][0]["message"]["content"]
+        reply_text = response.choices[0].message.content
 
         append_history(user_id, "user", prompt)
         append_history(user_id, "model", reply_text)
 
         return reply_text
+
     except Exception as e:
+        # Повертаємо зрозумілу помилку
         return f"Ой, шось я завис. Помилка ШІ: {e}"
 
 # ==========================================
