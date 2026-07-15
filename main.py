@@ -411,6 +411,38 @@ def tg_webhook():
                     user_states[user_id] = "MAIN"
                     if thread_id:
                         send_tg_request("sendMessage", {"chat_id": ADMIN_CHAT_ID, "message_thread_id": thread_id, "text": f"🔢 <b>Клієнт вказав замовлення:</b> {text}", "parse_mode": "HTML"})
+                                        elif current_state == "WAITING_PHONE":
+                    # Зберігаємо номер телефону
+                    phone_number = text.strip()
+                    # Записуємо в Google Sheets (вкладка "Контакти")
+                    try:
+                        gc = gspread.service_account(filename=os.path.join(BASE_DIR, "credentials.json"))
+                        sh = gc.open_by_key(SHEET_ID)
+                        try:
+                            ws = sh.worksheet("Контакти")
+                        except:
+                            ws = sh.add_worksheet(title="Контакти", rows="1000", cols="4")
+                            ws.append_row(["Дата", "ID Клієнта", "Ім'я", "Телефон"])
+                        ws.append_row([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id, user_name, phone_number])
+                        # Сповіщаємо адміна
+                        if thread_id:
+                            send_tg_request("sendMessage", {
+                                "chat_id": ADMIN_CHAT_ID,
+                                "message_thread_id": thread_id,
+                                "text": f"📞 <b>Клієнт залишив номер:</b> {phone_number}",
+                                "parse_mode": "HTML"
+                            })
+                        send_tg_request("sendMessage", {
+                            "chat_id": user_id,
+                            "text": "✅ Дякуємо! Менеджер зв'яжеться з вами найближчим часом.",
+                            "reply_markup": KEYBOARDS["MAIN"]
+                        })
+                    except Exception as e:
+                        send_tg_request("sendMessage", {
+                            "chat_id": user_id,
+                            "text": f"❌ Помилка збереження номера. Спробуйте пізніше або зателефонуйте: +380673987757"
+                        })
+                    user_states[user_id] = "MAIN"
                 else:
                     # Перевіряємо на ескалацію до відправки в ШІ
                     escalation_keywords = ['скарга', 'повернення', 'брак', 'погано', 'не працює', 
