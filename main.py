@@ -231,7 +231,8 @@ RESPONSES = {
     "ACTION_CONFIRM": "Прийнято! Скидай свої креслення чи розміри, менеджер вже відкриває чат",
     "DESIGN_3D": "Розробляємо повний конструкторський проєкт твоїх меблів. Опиши свою ідею або скинь ескіз менеджеру.",
     "DELIVERY": "📦 Доставка: Самовивіз по Рівному або Нова Пошта по Україні.\n💵 Оплата: На карту або аванс на розпил.\nПитання — стукай менеджеру!",
-    "MAP": "📍 Шукай нас тут: м. Рівне, вул. Валерія Опанасюка, 8"
+    "MAP": "📍 Шукай нас тут: м. Рівне, вул. Валерія Опанасюка, 8",
+    "PHOTO_RECEIVED": "📸 Дякуємо! Ваше фото отримано. Менеджер перегляне його і зв'яжеться з вами. Будь ласка, продублюйте розміри та колір текстом, якщо можливо."
 }
 
 CRM_TEMPLATES = {
@@ -342,7 +343,6 @@ def tg_webhook():
             elif cb_data == "menu_bend":
                 out_text, out_kb = RESPONSES["BENDING"], KEYBOARDS["ORDER_ACTION"]
             elif cb_data == "menu_manager":
-                # Просимо номер телефону
                 out_text = "📱 Будь ласка, надішліть ваш номер телефону, і менеджер зв'яжеться з вами найближчим часом."
                 out_kb = None
                 user_states[user_id] = "WAITING_PHONE"
@@ -399,6 +399,34 @@ def tg_webhook():
             user_id = chat_id
             user_name = msg.get("from", {}).get("first_name", "Клієнт")
             thread_id, crm_db = get_or_create_topic(user_id, user_name)
+
+            # Обробка фото
+            if "photo" in msg:
+                caption = msg.get("caption", "").strip() if msg.get("caption") else ""
+                if caption:
+                    # Якщо є підпис – обробляємо як текстове повідомлення
+                    text = caption
+                else:
+                    # Фото без підпису: пересилаємо адміну, клієнту шаблон
+                    if thread_id:
+                        send_tg_request("copyMessage", {
+                            "chat_id": ADMIN_CHAT_ID,
+                            "message_thread_id": thread_id,
+                            "from_chat_id": chat_id,
+                            "message_id": msg["message_id"]
+                        })
+                    send_tg_request("sendMessage", {
+                        "chat_id": user_id,
+                        "text": RESPONSES["PHOTO_RECEIVED"],
+                        "reply_markup": KEYBOARDS["MAIN"]
+                    })
+                    user_states[user_id] = "MAIN"
+                    save_json(CRM_FILE, crm_db)
+                    save_json(STATES_FILE, user_states)
+                    return "OK", 200
+            else:
+                text = str(msg.get("text", "")).strip()
+
             if text == "/start":
                 send_tg_request("sendMessage", {"chat_id": user_id, "text": RESPONSES["WELCOME"], "parse_mode": "HTML", "reply_markup": KEYBOARDS["MAIN"]})
                 user_states[user_id] = "MAIN"
