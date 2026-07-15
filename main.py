@@ -12,7 +12,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BOT_TOKEN = "8978567584:AAF4WItWVW7yOgsZi4FzF2VeSnZ6OobXNeY"
 ADMIN_CHAT_ID = "-1004425242771"
 SHEET_ID = "1Y32KfFWg0mK3QwxAXo0FOAwYuMZydcZyEX-OFT3yXu4"
-DEEPSEEK_API_KEY = ""  # ← ВСТАВ СВІЙ КЛЮЧ
+DEEPSEEK_API_KEY = "sk-92e1723ef81c460ebf65ce1a48d1ea3b"  # ← ВСТАВ СВІЙ КЛЮЧ
 
 TG_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
