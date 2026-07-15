@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BlackWood Фурнітура</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* ГУМОВИЙ АДАПТИВНИЙ ДИЗАЙН */
+        body { 
+            background-color: #f7f7f8; color: #1e1e1e; font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
+            margin: 0 auto; padding: 15px; padding-bottom: 90px; 
+            max-width: 1400px; /* Широкий формат для ПК */
+            min-height: 100vh; position: relative;
+        }
+        
+        .top-bar { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+        .search-box { flex-grow: 1; padding: 12px 15px; background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; font-size: 16px; outline: none; color: #1e1e1e; }
+        .cart-icon-btn { position: relative; background: #fff; border: 1px solid #e0e0e0; border-radius: 12px; padding: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; height: 48px; width: 48px; box-sizing: border-box; flex-shrink: 0;}
+        .cart-icon-btn svg { width: 22px; height: 22px; fill: #1e1e1e; }
+        .cart-badge { position: absolute; top: -5px; right: -5px; background: #ef4444; color: #fff; font-size: 10px; font-weight: bold; border-radius: 50%; min-width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; }
+        
+        .discount-banner { display: none; background: linear-gradient(135deg, #3f3f46, #18181b); color: #fff; padding: 12px; border-radius: 12px; margin-bottom: 10px; font-weight: 500; font-size: 14px; text-align: center; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15); }
+
+        .categories { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 5px; margin-bottom: 15px; scrollbar-width: none; }
+        .categories::-webkit-scrollbar { display: none; }
+        .cat-btn { background: #fff; border: 1px solid #e0e0e0; color: #4b5563; padding: 8px 16px; border-radius: 8px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+        .cat-btn.active { background: #27272a; color: #fff; border-color: #27272a; }
+        
+        /* МАГІЯ АДАПТИВНОЇ СІТКИ (від 2 до 8 товарів у ряд залежно від екрану) */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 12px; }
+        
+        .card { background: #fff; border-radius: 16px; padding: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); display: flex; flex-direction: column; position: relative; border: 1px solid #f3f4f6;}
+        .discount-badge { position: absolute; top: 10px; left: 10px; background: #ef4444; color: #fff; font-size: 11px; font-weight: bold; padding: 4px 8px; border-radius: 8px; z-index: 2; }
+        .card-clickable { cursor: pointer; display: flex; flex-direction: column; flex-grow: 1; }
+        .card-img { width: 100%; height: 120px; object-fit: contain; margin-bottom: 10px; }
+        .card-title { font-size: 13px; font-weight: 600; line-height: 1.3; margin-bottom: 6px; flex-grow: 1; color: #1e1e1e;}
+        .price-container { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+        .card-price { font-size: 18px; font-weight: 800; color: #1e1e1e; }
+        .card-old-price { font-size: 13px; color: #9ca3af; text-decoration: line-through; font-weight: 500; }
+        
+        .stock-status { font-size: 11px; font-weight: 700; color: #10b981; margin-bottom: 10px; }
+        
+        .variants { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px; }
+        .var-btn { border: 1px solid #d1d5db; background: #fff; border-radius: 6px; padding: 4px 8px; font-size: 11px; cursor: pointer; color: #4b5563; }
+        .var-btn.active { border-color: #27272a; color: #1e1e1e; background: #f4f4f5; font-weight: bold; }
+        
+        .buy-btn { background: #27272a; color: #fff; border: none; border-radius: 8px; padding: 10px; font-weight: 600; font-size: 14px; cursor: pointer; width: 100%; display: flex; justify-content: center; gap: 6px; }
+        .buy-btn svg { width: 18px; height: 18px; fill: currentColor; }
+        
+        .qty-controls { display: flex; justify-content: space-between; align-items: center; background: #f4f4f5; border-radius: 8px; padding: 4px; border: 1px solid #e4e4e7;}
+        .qty-btn { background: #fff; color: #1e1e1e; border: 1px solid #e4e4e7; border-radius: 6px; width: 32px; height: 32px; font-size: 18px; font-weight: bold; cursor: pointer; }
+        .qty-val { font-weight: 700; font-size: 15px; color: #1e1e1e; }
+        
+        /* КОШИК І ІСТОРІЯ (Фіксуємо ширину на ПК, щоб не розлазилось на метр) */
+        .modal-screen { display: none; position: fixed; top: 0; left: 0; right: 0; margin: 0 auto; max-width: 600px; width: 100%; height: 100%; background: #f7f7f8; z-index: 999; padding: 15px; box-sizing: border-box; overflow-y: auto; padding-bottom: 90px; border-left: 1px solid #e0e0e0; border-right: 1px solid #e0e0e0;}
+        .modal-header { font-size: 20px; font-weight: 800; margin-bottom: 20px; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; color: #1e1e1e;}
+        .cart-item { background: #fff; padding: 12px; border-radius: 12px; margin-bottom: 12px; display: flex; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.04); gap: 12px; border: 1px solid #f3f4f6;}
+        .cart-item-title { font-weight: 600; font-size: 14px; margin-bottom: 5px; line-height: 1.3; color: #1e1e1e;}
+        .cart-item-price { color: #1e1e1e; font-weight: 800; font-size: 16px;}
+        .cart-empty { text-align: center; color: #888; margin-top: 50px; font-size: 16px; font-weight: 500;}
+        .cart-total-line { display: flex; justify-content: space-between; font-size: 18px; font-weight: 800; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #d1d5db; color: #1e1e1e;}
+        
+        .promo-container { display: flex; gap: 8px; margin-top: 15px; }
+        .promo-input { flex-grow: 1; padding: 12px; border: 1px solid #d1d5db; border-radius: 10px; outline: none; font-size: 14px; }
+        .promo-btn { background: #27272a; color: #fff; border: none; border-radius: 10px; padding: 0 20px; font-weight: 600; cursor: pointer; }
+        .promo-msg { font-size: 13px; margin-top: 5px; font-weight: 600; }
+        .promo-success { color: #10b981; }
+        .promo-error { color: #ef4444; }
+
+        #overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        
+        /* ВІКНО ТОВАРУ ТАКОЖ ПО ЦЕНТРУ НА ПК */
+        #product-sheet { position: fixed; bottom: -100%; left: 0; right: 0; margin: 0 auto; max-width: 600px; width: 100%; max-height: 85vh; background: #fff; border-radius: 20px 20px 0 0; z-index: 1001; transition: bottom 0.3s; padding: 20px; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; }
+        .sheet-drag-line { width: 40px; height: 5px; background: #e0e0e0; border-radius: 3px; margin: 0 auto 15px auto; }
+        #sheet-img { width: 100%; height: 250px; object-fit: contain; margin-bottom: 15px; }
+        .sheet-title { font-size: 20px; font-weight: 800; margin-bottom: 15px; color: #1e1e1e; line-height: 1.2; }
+        .sheet-desc { font-size: 15px; color: #4b5563; line-height: 1.6; white-space: pre-wrap; margin-bottom: 30px;}
+        .copyright-footer { text-align: center; margin-top: 35px; margin-bottom: 10px; font-size: 11px; color: #a3a3a3; font-weight: 500; line-height: 1.4; }
+
+        /* КНОПКА ДЛЯ БРАУЗЕРА (По центру, не розтягується на весь екран) */
+        #web-main-button {
+            display: none; position: fixed; bottom: 20px; 
+            left: 50%; transform: translateX(-50%); 
+            width: calc(100% - 30px); max-width: 400px; 
+            background: #27272a; color: #fff; border: none; border-radius: 12px; padding: 15px; font-weight: 700; font-size: 16px; z-index: 1002; box-shadow: 0 4px 15px rgba(39,39,42,0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="catalog-screen">
+        <div class="top-bar">
+            <input type="text" id="search" class="search-box" placeholder="🔍 Я шукаю..." onkeyup="renderProducts()">
+            <div class="cart-icon-btn" onclick="openHistory()" style="margin-right: -4px;">
+                <svg viewBox="0 0 24 24"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+            </div>
+            <div class="cart-icon-btn" onclick="toggleCart()">
+                <svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                <span id="cart-badge" class="cart-badge" style="display: none;">0</span>
+            </div>
+        </div>
+
+        <div id="discount-banner" class="discount-banner"></div>
+
+        <div class="categories" id="category-list"></div>
+        <div class="grid" id="product-list"></div>
+
+        <div class="copyright-footer">BlackWood Shop v2.5 (Responsive Grid)</div>
+    </div>
+
+    <div id="cart-modal" class="modal-screen">
+        <div class="modal-header">Твій кошик 🛒</div>
+        <div id="cart-list" style="width: 100%;"></div>
+        <div id="promo-section" style="display:none;">
+            <div class="promo-container">
+                <input type="text" id="promo-code-input" class="promo-input" placeholder="Ввести промокод">
+                <button class="promo-btn" onclick="applyPromo()">OK</button>
+            </div>
+            <div id="promo-message" class="promo-msg"></div>
+        </div>
+        <div id="cart-total-container"></div>
+    </div>
+
+    <div id="history-modal" class="modal-screen">
+        <div class="modal-header">Історія замовлень 📦</div>
+        <div id="history-list-content"></div>
+    </div>
+
+    <div id="overlay" onclick="closeProductSheet()"></div>
+    <div id="product-sheet">
+        <div class="sheet-drag-line"></div>
+        <img id="sheet-img" src="" alt="">
+        <div id="sheet-title" class="sheet-title"></div>
+        <div id="sheet-desc" class="sheet-desc"></div>
+    </div>
+
+    <button id="web-main-button" onclick="handleMainButtonClick()">
+        КОШИК (0 ₴)
+    </button>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand(); tg.setHeaderColor('#f7f7f8');
+        
+        let products = [], cart = {};
+        let currentCategory = 'Всі', categories = ['Всі'], activeVariants = {}; 
+        let isCartOpen = false, isHistoryOpen = false, isSheetOpen = false; 
+        let userDiscount = 0, appliedPromo = { code: "", discount: 0 };
+
+        const globalUserId = tg.initDataUnsafe?.user?.id || "";
+        
+        fetch(`/api/products?user_id=${globalUserId}&t=${Date.now()}`)
+            .then(res => res.json())
+            .then(data => { 
+                userDiscount = data.discount || 0; products = data.items || [];
+                if(userDiscount > 0) {
+                    const banner = document.getElementById('discount-banner');
+                    banner.innerHTML = `🎉 Твоя персональна знижка: <b>-${userDiscount}%</b>`;
+                    banner.style.display = 'block';
+                }
+                let uniqueCats = [...new Set(products.map(p => p.category).filter(c => c && c.trim() !== ''))];
+                categories = ['Всі', ...uniqueCats];
+                renderCategories(); renderProducts(); 
+            });
+
+        function renderCategories() {
+            const list = document.getElementById('category-list'); list.innerHTML = '';
+            categories.forEach(cat => { list.innerHTML += `<button class="cat-btn ${cat === currentCategory ? 'active' : ''}" onclick="setCategory('${cat}')">${cat}</button>`; });
+        }
+        function setCategory(cat) { currentCategory = cat; renderCategories(); renderProducts(); }
+        function selectVariant(pName, idx) { activeVariants[pName] = idx; renderProducts(); }
+
+        function updateTelegramButton() {
+            let subtotal = Object.values(cart).reduce((s, i) => s + (i.price * i.qty), 0);
+            let total = parseFloat((subtotal - (appliedPromo.discount > 0 ? subtotal * (appliedPromo.discount / 100) : 0)).toFixed(2));
+            let totalQty = Object.values(cart).reduce((s, i) => s + i.qty, 0);
+            
+            document.getElementById('cart-badge').innerText = totalQty;
+            document.getElementById('cart-badge').style.display = totalQty > 0 ? 'flex' : 'none';
+
+            const isInTelegram = globalUserId !== "";
+
+            if (total > 0) {
+                let btnText = isCartOpen ? `ПІДТВЕРДИТИ ЗАМОВЛЕННЯ (${total} ₴)` : `КОШИК (${total} ₴)`;
+                if (isInTelegram) {
+                    if (isSheetOpen || isHistoryOpen) { tg.MainButton.hide(); return; }
+                    tg.MainButton.color = "#27272a";
+                    tg.MainButton.setText(btnText);
+                    tg.MainButton.show();
+                } else {
+                    const webBtn = document.getElementById('web-main-button');
+                    if (isSheetOpen || isHistoryOpen) { webBtn.style.display = 'none'; return; }
+                    webBtn.innerText = btnText;
+                    webBtn.style.display = 'block';
+                }
+            } else {
+                if (isInTelegram) { tg.MainButton.hide(); } 
+                else { document.getElementById('web-main-button').style.display = 'none'; }
+                if (isCartOpen) toggleCart();
+            }
+        }
+
+        function openProductSheet(pName) {
+            let p = products.find(x => x.name === pName); if(!p) return;
+            let folder = p.category === 'ДСП' ? 'photo' : 'images';
+            document.getElementById('sheet-img').src = p.image ? `/${folder}/${p.image}` : 'https://via.placeholder.com/250';
+            document.getElementById('sheet-title').innerText = p.name;
+            document.getElementById('sheet-desc').innerText = p.description || "Характеристики уточнюйте у менеджера.";
+            document.getElementById('overlay').style.display = 'block';
+            setTimeout(() => { document.getElementById('product-sheet').style.bottom = '0'; }, 10);
+            isSheetOpen = true; tg.BackButton.show(); updateTelegramButton();
+        }
+
+        function closeProductSheet() {
+            document.getElementById('product-sheet').style.bottom = '-100%';
+            setTimeout(() => { document.getElementById('overlay').style.display = 'none'; }, 300);
+            isSheetOpen = false; if(!isCartOpen && !isHistoryOpen) tg.BackButton.hide(); updateTelegramButton();
+        }
+
+        function renderProducts() {
+            const query = document.getElementById('search').value.toLowerCase();
+            const list = document.getElementById('product-list'); list.innerHTML = '';
+            products.forEach(p => {
+                if ((p.name.toLowerCase().includes(query) || (p.category && p.category.toLowerCase().includes(query))) && (currentCategory === 'Всі' || p.category === currentCategory)) {
+                    let varIdx = activeVariants[p.name] || 0, cv = p.variants[varIdx], qty = cart[cv.id] ? cart[cv.id].qty : 0;
+                    
+                    let folder = p.category === 'ДСП' ? 'photo' : 'images';
+                    let imgSrc = p.image ? `/${folder}/${p.image}` : 'https://via.placeholder.com/150';
+                    
+                    let discHtml = cv.old_price > cv.price ? `<div class="discount-badge">-${Math.round(((cv.old_price - cv.price) / cv.old_price) * 100)}%</div>` : '';
+                    let varHtml = (p.variants.length > 1 || (p.variants.length === 1 && p.variants[0].variant_name !== "")) ? '<div class="variants">' + p.variants.map((v, i) => `<button class="var-btn ${i === varIdx ? 'active' : ''}" onclick="selectVariant('${p.name}', ${i})">${v.variant_name}</button>`).join('') + '</div>' : '';
+                    let safeName = (cv.variant_name ? `${p.name} (${cv.variant_name})` : p.name).replace(/'/g, "\\'");
+                    
+                    let btnHtml = qty === 0 
+                        ? `<button class="buy-btn" onclick="updateItem('${cv.id}', '${safeName}', ${cv.price}, 1)"><svg viewBox="0 0 24 24"><path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/></svg> Купити</button>`
+                        : `<div class="qty-controls"><button class="qty-btn" onclick="updateItem('${cv.id}', '${safeName}', ${cv.price}, -1)">-</button><span class="qty-val">${qty}</span><button class="qty-btn" onclick="updateItem('${cv.id}', '${safeName}', ${cv.price}, 1)">+</button></div>`;
+                    
+                    list.innerHTML += `<div class="card">${discHtml}<div class="card-clickable" onclick="openProductSheet('${p.name.replace(/'/g, "\\'")}')"><img src="${imgSrc}" class="card-img"><div class="card-title">${p.name}</div></div>${varHtml}<div class="price-container"><span class="card-price">${cv.price} ₴</span>${cv.old_price > cv.price ? `<span class="card-old-price">${cv.old_price} ₴</span>` : ''}</div><div class="stock-status">● ${cv.status}</div>${btnHtml}</div>`;
+                }
+            });
+        }
+
+        function updateItem(id, name, price, delta) {
+            if (!cart[id]) cart[id] = { name: name, price: price, qty: 0 };
+            cart[id].qty = Math.max(0, cart[id].qty + delta); if (cart[id].qty === 0) delete cart[id];
+            renderProducts(); if (isCartOpen) renderCartView(); updateTelegramButton();
+        }
+
+        function toggleCart() {
+            if (!isCartOpen && Object.keys(cart).length === 0) return;
+            isCartOpen = !isCartOpen;
+            document.getElementById('cart-modal').style.display = isCartOpen ? 'block' : 'none';
+            document.getElementById('catalog-screen').style.display = isCartOpen ? 'none' : 'block';
+            if (isCartOpen) { renderCartView(); tg.BackButton.show(); } else if(!isHistoryOpen) { tg.BackButton.hide(); }
+            updateTelegramButton();
+        }
+
+        function applyPromo() {
+            const code = document.getElementById('promo-code-input').value.trim(), msgDiv = document.getElementById('promo-message');
+            if(!code) { msgDiv.className = 'promo-msg promo-error'; msgDiv.innerText = 'Введіть код!'; return; }
+            fetch(`/api/promo/${code}`).then(res => res.json()).then(data => {
+                if(data.status === 'success') {
+                    appliedPromo = { code: code, discount: data.discount };
+                    msgDiv.className = 'promo-msg promo-success'; msgDiv.innerText = `✅ Промокод застосовано! Знижка -${data.discount}%`;
+                } else { appliedPromo = { code: "", discount: 0 }; msgDiv.className = 'promo-msg promo-error'; msgDiv.innerText = `❌ ${data.message}`; }
+                renderCartView();
+            }).catch(() => { msgDiv.className = 'promo-msg promo-error'; msgDiv.innerText = '❌ Помилка зв\'язку'; });
+        }
+
+        function renderCartView() {
+            const list = document.getElementById('cart-list'), totalContainer = document.getElementById('cart-total-container'), promoSec = document.getElementById('promo-section');
+            list.innerHTML = '';
+            if (Object.keys(cart).length === 0) { list.innerHTML = '<div class="cart-empty">Кошик пустий 🤷‍♂️</div>'; totalContainer.innerHTML = ''; promoSec.style.display = 'none'; appliedPromo = { code: "", discount: 0 }; return; }
+            promoSec.style.display = 'block';
+            Object.keys(cart).forEach(id => { let i = cart[id], sName = i.name.replace(/'/g, "\\'"); list.innerHTML += `<div class="cart-item" style="gap:0; justify-content:space-between;"><div class="cart-item-info"><div class="cart-item-title">${i.name}</div><div class="cart-item-price">${(i.price * i.qty).toFixed(2)} ₴</div></div><div class="qty-controls" style="min-width: 90px;"><button class="qty-btn" onclick="updateItem('${id}', '${sName}', ${i.price}, -1)">-</button><span class="qty-val">${i.qty}</span><button class="qty-btn" onclick="updateItem('${id}', '${sName}', ${i.price}, 1)">+</button></div></div>`; });
+            let subtotal = Object.values(cart).reduce((s, i) => s + (i.price * i.qty), 0), total = parseFloat((subtotal - (appliedPromo.discount > 0 ? subtotal * (appliedPromo.discount / 100) : 0)).toFixed(2));
+            totalContainer.innerHTML = `<div class="cart-total-line"><span>До сплати:</span><div>${appliedPromo.discount > 0 ? `<span style="text-decoration: line-through; color: #9ca3af; font-size: 14px; margin-right: 8px;">${subtotal.toFixed(2)} ₴</span>` : ""}<span style="color: #1e1e1e;">${total} ₴</span></div></div>`;
+            updateTelegramButton();
+        }
+
+        async function openHistory() {
+            if(!globalUserId) return; isHistoryOpen = true; document.getElementById('catalog-screen').style.display = 'none'; document.getElementById('history-modal').style.display = 'block'; tg.BackButton.show(); updateTelegramButton();
+            const listContent = document.getElementById('history-list-content'); listContent.innerHTML = '<div class="cart-empty">Завантажую... ⏳</div>';
+            try {
+                const orders = await (await fetch(`/api/history/${globalUserId}`)).json();
+                if (orders.length === 0) listContent.innerHTML = '<div class="cart-empty">Історія пуста 🤷‍♂️</div>';
+                else listContent.innerHTML = orders.reverse().map(o => `<div class="cart-item" style="flex-direction: column; align-items: flex-start; gap: 8px;"><div style="font-size: 12px; color: #888;">📅 ${o.date}</div><div style="font-size: 14px; font-weight: 500; line-height: 1.4;">📦 ${o.items}</div><div style="font-size: 16px; font-weight: 800; color: #1e1e1e;">Сума: ${o.total} ₴</div></div>`).join('');
+            } catch (e) { listContent.innerHTML = '<div class="cart-empty">Помилка ❌</div>'; }
+        }
+        function closeHistory() { isHistoryOpen = false; document.getElementById('history-modal').style.display = 'none'; document.getElementById('catalog-screen').style.display = 'block'; if(!isCartOpen) tg.BackButton.hide(); updateTelegramButton(); }
+
+        function handleMainButtonClick() {
+            if (!isCartOpen) { toggleCart(); } else {
+                let name = prompt("Введіть ваше ПІБ:");
+                let phone = prompt("Введіть ваш номер телефону:");
+                if(!name || !phone) { alert("Контакти обов'язкові!"); return; }
+                let subtotal = Object.values(cart).reduce((s, i) => s + (i.price * i.qty), 0);
+                let total = parseFloat((subtotal - (appliedPromo.discount > 0 ? subtotal * (appliedPromo.discount / 100) : 0)).toFixed(2));
+                fetch('/api/order', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ user_id: "FROM_WEB_BROWSER", user_name: `${name} (Тел: ${phone})`, cart: cart, total: total, promo_code: appliedPromo.code })
+                }).then(() => { alert("Замовлення прийнято! Менеджер зв'яжеться з вами."); location.reload(); });
+            }
+        }
+
+        tg.BackButton.onClick(() => { if (isSheetOpen) closeProductSheet(); else if (isHistoryOpen) closeHistory(); else if (isCartOpen) toggleCart(); });
+
+        tg.MainButton.onClick(() => {
+            if (!isCartOpen && !isSheetOpen && !isHistoryOpen) toggleCart();
+            else if (isCartOpen) {
+                let subtotal = Object.values(cart).reduce((s, i) => s + (i.price * i.qty), 0), total = parseFloat((subtotal - (appliedPromo.discount > 0 ? subtotal * (appliedPromo.discount / 100) : 0)).toFixed(2));
+                fetch('/api/order', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ user_id: globalUserId, user_name: tg.initDataUnsafe?.user?.first_name || "Клієнт", cart: cart, total: total, promo_code: appliedPromo.code })
+                }).then(() => { tg.showAlert("Замовлення полетіло! Скоро відправимо."); tg.close(); });
+            }
+        });
+    </script>
+</body>
+</html>

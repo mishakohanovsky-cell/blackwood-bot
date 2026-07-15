@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Наші роботи — BlackWood</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css" />
+    <style>
+        body { background-color: #f7f7f8; color: #1e1e1e; font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; box-sizing: border-box; }
+        .title { font-size: 22px; font-weight: 800; margin-top: 10px; margin-bottom: 20px; text-align: center; color: #1e1e1e; }
+        .swiper { width: 100%; max-width: 360px; height: 70vh; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); background: #fff; }
+        .swiper-slide { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 15px; box-sizing: border-box; }
+        .slide-img { width: 100%; height: 75%; object-fit: cover; border-radius: 14px; }
+        .slide-desc { margin-top: 15px; font-size: 15px; font-weight: 600; text-align: center; color: #4b5563; line-height: 1.5; padding: 0 10px; overflow-y: auto; }
+        .swiper-pagination-bullet-active { background: #7b61ff !important; }
+    </style>
+</head>
+<body>
+
+    <div class="title">Наші роботи 📸</div>
+
+    <div class="swiper">
+        <div class="swiper-wrapper" id="slides-container">
+            </div>
+        <div class="swiper-pagination"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.setHeaderColor('#f7f7f8');
+
+        fetch('/api/works')
+            .then(res => res.json())
+            .then(data => {
+                const container = document.getElementById('slides-container');
+                if (!data || data.length === 0) {
+                    container.innerHTML = `
+                        <div class="swiper-slide" style="justify-content: center;">
+                            <div class="slide-desc">Скоро тут будуть фото наших робіт! 🛠</div>
+                        </div>`;
+                } else {
+                    data.forEach(item => {
+                        const imgSrc = item.image ? `/photo/${item.image}` : 'https://via.placeholder.com/350x400';
+                        container.innerHTML += `
+                            <div class="swiper-slide">
+                                <img src="${imgSrc}" class="slide-img" alt="BlackWood">
+                                <div class="slide-desc">${item.description || "Без опису"}</div>
+                            </div>`;
+                    });
+                }
+
+                // Запуск каруселі
+                new Swiper('.swiper', {
+                    pagination: { el: '.swiper-pagination', clickable: true },
+                    loop: data.length > 1,
+                    spaceBetween: 20
+                });
+            });
+    </script>
+</body>
+</html>
