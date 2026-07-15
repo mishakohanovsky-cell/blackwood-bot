@@ -88,7 +88,7 @@ def append_history(user_id, role, text):
     if uid not in hist_db:
         hist_db[uid] = []
     hist_db[uid].append({"role": role, "text": text})
-    hist_db[uid] = hist_db[uid][-6:]
+    hist_db[uid] = hist_db[uid][-20:]
     save_json(HISTORY_FILE, hist_db)
 
 def ask_deepseek(user_id, prompt):
