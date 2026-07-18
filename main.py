@@ -16,6 +16,21 @@ DEEPSEEK_API_KEY = "sk-92e1723ef81c460ebf65ce1a48d1ea3b"
 TG_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # ==========================================
+# 🛡️ АВТОМАТИЧНЕ ВІДНОВЛЕННЯ ВЕБХУКА
+# ==========================================
+def ensure_webhook():
+    """Перевіряє та встановлює вебхук при кожному виклику"""
+    try:
+        info = requests.get(f"{TG_API_URL}/getWebhookInfo").json()
+        current_url = info.get("result", {}).get("url", "")
+        expected_url = "https://blackwood-bot.onrender.com/api/bot"
+        if current_url != expected_url:
+            requests.get(f"{TG_API_URL}/setWebhook?url={expected_url}")
+            print("Webhook updated")
+    except:
+        pass
+
+# ==========================================
 # 🧠 НАЛАШТУВАННЯ ШТУЧНОГО ІНТЕЛЕКТУ
 # ==========================================
 
@@ -292,6 +307,14 @@ def get_or_create_topic(user_id, user_name):
             send_tg_request("sendMessage", {"chat_id": ADMIN_CHAT_ID, "message_thread_id": thread_id, "text": "🎛 <b>Пульт керування:</b>", "parse_mode": "HTML", "reply_markup": keyboard})
         return crm_db["users_to_topics"][user_id], crm_db
     return None, crm_db
+
+# ==========================================
+# 🔄 HEALTH CHECK + АВТОМАТИЧНЕ ВІДНОВЛЕННЯ ВЕБХУКА
+# ==========================================
+@app.route("/health", methods=["GET"])
+def health_check():
+    ensure_webhook()
+    return "OK", 200
 
 @app.route("/api/bot", methods=["POST"])
 def tg_webhook():
@@ -703,4 +726,5 @@ def verify():
     return jsonify({"status": "ok"})
 
 if __name__ == "__main__":
+    ensure_webhook()
     app.run(debug=True)
