@@ -185,7 +185,7 @@ def ask_deepseek(user_id, prompt):
         messages.append({"role": "user", "content": prompt})
 
         response = client.chat.completions.create(
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
             messages=messages,
             temperature=0.5,
             max_tokens=500
