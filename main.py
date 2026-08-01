@@ -2,6 +2,7 @@ import json
 import os
 import requests
 import gspread
+import re
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file
 
@@ -150,6 +151,7 @@ HISTORY_FILE = os.path.join(BASE_DIR, 'chat_history.json')
 CATALOG_CACHE = {"text": "", "last_update": datetime.min}
 
 def get_catalog_context():
+    """Формує текст каталогу з Google Sheets, додаючи розмір (довжину) зі стовпця variant, якщо він є."""
     global CATALOG_CACHE
     if (datetime.now() - CATALOG_CACHE["last_update"]).seconds < 300:
         return CATALOG_CACHE["text"]
@@ -162,9 +164,44 @@ def get_catalog_context():
         catalog_text = "\n\n--- АКТУАЛЬНИЙ ПРАЙС З БАЗИ ---\n(Використовуй ці ціни, якщо клієнт питає про конкретний товар. Якщо товару тут нема - кажи, що треба уточнити на складі):\n"
         count = 0
         for row in records:
-            if row.get("name") and row.get("price"):
-                catalog_text += f"- {row['name']}: {row['price']} грн\n"
-                count += 1
+            if not row.get("name") or not row.get("price"):
+                continue
+
+            name = str(row["name"]).strip()
+            price = row["price"]
+            length_info = ""
+
+            # 1) Прямий пошук числа в стовпці variant (основне джерело довжини)
+            variant = row.get("variant", "")
+            if variant:
+                # Шукаємо число (ціле або десяткове) на початку рядка або просто число
+                match = re.match(r'^(\d+(?:\.\d+)?)\s*(?:мм|mm)?$', str(variant).strip(), re.IGNORECASE)
+                if match:
+                    length_info = f", {match.group(1)} мм"
+                else:
+                    # Якщо не чисте число, спробуємо знайти будь-яке число
+                    nums = re.findall(r'(\d+(?:\.\d+)?)\s*(?:мм|mm)?', str(variant))
+                    if nums:
+                        length_info = f", {nums[0]} мм"
+
+            # 2) Якщо в variant не знайшли, шукаємо в інших можливих стовпцях
+            if not length_info:
+                for key in ["length", "довжина", "розмір", "size"]:
+                    val = row.get(key)
+                    if val:
+                        nums = re.findall(r'(\d+(?:\.\d+)?)', str(val))
+                        if nums:
+                            length_info = f", {nums[0]} мм"
+                            break
+
+            # 3) Якщо все ще немає, шукаємо 3-4 значне число прямо в назві товару
+            if not length_info:
+                nums = re.findall(r'\b(\d{3,4})\b', name)
+                if nums:
+                    length_info = f", {nums[0]} мм"
+
+            catalog_text += f"- {name}{length_info}: {price} грн\n"
+            count += 1
             if count >= 100:
                 break
 
@@ -172,6 +209,7 @@ def get_catalog_context():
         CATALOG_CACHE["last_update"] = datetime.now()
         return catalog_text
     except Exception as e:
+        print(f"Помилка отримання каталогу: {e}")
         return ""
 
 def get_user_history(user_id):
