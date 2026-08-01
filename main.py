@@ -190,7 +190,7 @@ def ask_deepseek(user_id, prompt):
             model="deepseek-v4-flash",
             messages=messages,
             temperature=0.5,
-            max_tokens=500
+            max_tokens=1500
         )
 
         reply_text = response.choices[0].message.content
