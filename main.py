@@ -149,6 +149,66 @@ STATES_FILE = os.path.join(BASE_DIR, 'user_states.json')
 HISTORY_FILE = os.path.join(BASE_DIR, 'chat_history.json')
 
 CATALOG_CACHE = {"text": "", "last_update": datetime.min}
+TRAINING_CACHE = {"data": {}, "last_update": datetime.min}
+
+def get_gsheet_sheet(sheet_name):
+    """Отримує доступ до вказаного аркуша в Google Sheets."""
+    gc = gspread.service_account(filename=os.path.join(BASE_DIR, "credentials.json"))
+    sh = gc.open_by_key(SHEET_ID)
+    try:
+        return sh.worksheet(sheet_name)
+    except:
+        return None
+
+def load_training_data():
+    """Завантажує всі питання-відповіді з аркуша 'Навчання' у словник."""
+    global TRAINING_CACHE
+    if (datetime.now() - TRAINING_CACHE["last_update"]).seconds < 120:
+        return TRAINING_CACHE["data"]
+    
+    try:
+        ws = get_gsheet_sheet("Навчання")
+        if ws is None:
+            return {}
+        rows = ws.get_all_values()[1:]  # Пропускаємо заголовок
+        data = {}
+        for row in rows:
+            if len(row) >= 2 and row[0].strip() and row[1].strip():
+                question = row[0].strip().lower()
+                answer = row[1].strip()
+                data[question] = answer
+        TRAINING_CACHE["data"] = data
+        TRAINING_CACHE["last_update"] = datetime.now()
+        return data
+    except Exception as e:
+        print(f"Помилка завантаження навчальних даних: {e}")
+        return TRAINING_CACHE.get("data", {})
+
+def find_in_training(question):
+    """Шукає точний збіг питання в таблиці 'Навчання'. Повертає відповідь або None."""
+    data = load_training_data()
+    return data.get(question.lower().strip())
+
+def add_to_training(question, answer):
+    """Додає нову пару питання-відповідь в аркуш 'Навчання', якщо питання ще немає."""
+    try:
+        data = load_training_data()
+        normalized_question = question.strip().lower()
+        if normalized_question in data:
+            return  # Вже є
+        ws = get_gsheet_sheet("Навчання")
+        if ws is None:
+            # Створюємо аркуш, якщо немає
+            gc = gspread.service_account(filename=os.path.join(BASE_DIR, "credentials.json"))
+            sh = gc.open_by_key(SHEET_ID)
+            ws = sh.add_worksheet(title="Навчання", rows="1000", cols="3")
+            ws.append_row(["Питання", "Відповідь", "Дата додавання"])
+        ws.append_row([question.strip(), answer, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+        # Оновлюємо кеш
+        data[normalized_question] = answer
+        TRAINING_CACHE["data"] = data
+    except Exception as e:
+        print(f"Помилка додавання до навчання: {e}")
 
 def get_catalog_context():
     """Формує текст каталогу з Google Sheets, додаючи розмір (довжину) зі стовпця variant, якщо він є."""
@@ -174,12 +234,10 @@ def get_catalog_context():
             # 1) Прямий пошук числа в стовпці variant (основне джерело довжини)
             variant = row.get("variant", "")
             if variant:
-                # Шукаємо число (ціле або десяткове) на початку рядка або просто число
                 match = re.match(r'^(\d+(?:\.\d+)?)\s*(?:мм|mm)?$', str(variant).strip(), re.IGNORECASE)
                 if match:
                     length_info = f", {match.group(1)} мм"
                 else:
-                    # Якщо не чисте число, спробуємо знайти будь-яке число
                     nums = re.findall(r'(\d+(?:\.\d+)?)\s*(?:мм|mm)?', str(variant))
                     if nums:
                         length_info = f", {nums[0]} мм"
@@ -506,10 +564,8 @@ def tg_webhook():
             if "photo" in msg:
                 caption = msg.get("caption", "").strip() if msg.get("caption") else ""
                 if caption:
-                    # Якщо є підпис – обробляємо як текстове повідомлення
                     text = caption
                 else:
-                    # Фото без підпису: пересилаємо адміну, клієнту шаблон
                     if thread_id:
                         send_tg_request("copyMessage", {
                             "chat_id": ADMIN_CHAT_ID,
@@ -569,15 +625,32 @@ def tg_webhook():
                         })
                     user_states[user_id] = "MAIN"
                 else:
+                    # Послідовність пошуку відповіді: FAQ -> Навчання -> DeepSeek (з автододаванням)
+                    ai_answer = None
+                    used_training = False
+
+                    # 1. Перевірка ескалації
                     escalation_keywords = ['скарга', 'повернення', 'брак', 'погано', 'не працює', 
                                            'не задоволений', 'жахливо', 'відмовляюсь', 'розчарований',
                                            'проблема', 'не подобається', 'обурений']
                     if any(keyword in text.lower() for keyword in escalation_keywords):
                         ai_answer = "Перемикаю на живого менеджера, він вирішить ваше питання"
+                    
+                    # 2. FAQ
                     elif text.lower().strip() in FAQ_ANSWERS:
                         ai_answer = FAQ_ANSWERS[text.lower().strip()]
-                    else:
+                    
+                    # 3. Таблиця "Навчання"
+                    elif find_in_training(text):
+                        ai_answer = find_in_training(text)
+                        used_training = True
+
+                    # 4. DeepSeek + автоматичне запам'ятовування
+                    if ai_answer is None:
                         ai_answer = ask_deepseek(user_id, text)
+                        # Якщо це не помилка, додаємо в навчання
+                        if not ai_answer.startswith("Ой, шось я завис") and not ai_answer.startswith("Перемикаю"):
+                            add_to_training(text, ai_answer)
                     
                     send_tg_request("sendMessage", {"chat_id": user_id, "text": ai_answer})
 
