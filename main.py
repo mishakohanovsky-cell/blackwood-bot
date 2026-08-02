@@ -20,7 +20,6 @@ TG_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 # 🛡️ АВТОМАТИЧНЕ ВІДНОВЛЕННЯ ВЕБХУКА
 # ==========================================
 def ensure_webhook():
-    """Перевіряє та встановлює вебхук при кожному виклику"""
     try:
         info = requests.get(f"{TG_API_URL}/getWebhookInfo").json()
         current_url = info.get("result", {}).get("url", "")
@@ -149,7 +148,7 @@ STATES_FILE = os.path.join(BASE_DIR, 'user_states.json')
 HISTORY_FILE = os.path.join(BASE_DIR, 'chat_history.json')
 
 CATALOG_CACHE = {"text": "", "last_update": datetime.min}
-TRAINING_CACHE = {"data": {}, "last_update": datetime.min}
+TRAINING_CACHE = {"data": [], "last_update": datetime.min}  # Тепер це список кортежів (питання, відповідь)
 
 def get_gsheet_sheet(sheet_name):
     """Отримує доступ до вказаного аркуша в Google Sheets."""
@@ -161,7 +160,7 @@ def get_gsheet_sheet(sheet_name):
         return None
 
 def load_training_data():
-    """Завантажує всі питання-відповіді з аркуша 'Навчання' у словник."""
+    """Завантажує всі питання-відповіді з аркуша 'Навчання' у список кортежів."""
     global TRAINING_CACHE
     if (datetime.now() - TRAINING_CACHE["last_update"]).seconds < 120:
         return TRAINING_CACHE["data"]
@@ -169,44 +168,61 @@ def load_training_data():
     try:
         ws = get_gsheet_sheet("Навчання")
         if ws is None:
-            return {}
+            return []
         rows = ws.get_all_values()[1:]  # Пропускаємо заголовок
-        data = {}
+        data = []
         for row in rows:
             if len(row) >= 2 and row[0].strip() and row[1].strip():
                 question = row[0].strip().lower()
                 answer = row[1].strip()
-                data[question] = answer
+                data.append((question, answer))
         TRAINING_CACHE["data"] = data
         TRAINING_CACHE["last_update"] = datetime.now()
         return data
     except Exception as e:
         print(f"Помилка завантаження навчальних даних: {e}")
-        return TRAINING_CACHE.get("data", {})
+        return TRAINING_CACHE.get("data", [])
 
-def find_in_training(question):
-    """Шукає точний збіг питання в таблиці 'Навчання'. Повертає відповідь або None."""
+def find_in_training(user_question):
+    """Нечіткий пошук: шукає питання, яке містить всі ключові слова із запиту користувача."""
     data = load_training_data()
-    return data.get(question.lower().strip())
+    if not data:
+        return None
+
+    # Розбиваємо запит користувача на ключові слова довжиною > 2 символів
+    keywords = [word for word in user_question.lower().split() if len(word) > 2]
+    if not keywords:
+        return None
+
+    # Спочатку шукаємо точний збіг (пріоритет)
+    for question, answer in data:
+        if question == user_question.lower().strip():
+            return answer
+
+    # Потім шукаємо, де всі ключові слова присутні в питанні
+    for question, answer in data:
+        if all(keyword in question for keyword in keywords):
+            return answer
+
+    return None
 
 def add_to_training(question, answer):
-    """Додає нову пару питання-відповідь в аркуш 'Навчання', якщо питання ще немає."""
+    """Додає нову пару питання-відповідь в аркуш 'Навчання', якщо питання ще немає (точний збіг)."""
     try:
         data = load_training_data()
         normalized_question = question.strip().lower()
-        if normalized_question in data:
-            return  # Вже є
+        # Перевіряємо, чи є вже такий точний запис
+        if any(q == normalized_question for q, _ in data):
+            return
         ws = get_gsheet_sheet("Навчання")
         if ws is None:
-            # Створюємо аркуш, якщо немає
             gc = gspread.service_account(filename=os.path.join(BASE_DIR, "credentials.json"))
             sh = gc.open_by_key(SHEET_ID)
             ws = sh.add_worksheet(title="Навчання", rows="1000", cols="3")
             ws.append_row(["Питання", "Відповідь", "Дата додавання"])
         ws.append_row([question.strip(), answer, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
         # Оновлюємо кеш
-        data[normalized_question] = answer
-        TRAINING_CACHE["data"] = data
+        TRAINING_CACHE["data"].append((normalized_question, answer))
     except Exception as e:
         print(f"Помилка додавання до навчання: {e}")
 
@@ -231,7 +247,6 @@ def get_catalog_context():
             price = row["price"]
             length_info = ""
 
-            # 1) Прямий пошук числа в стовпці variant (основне джерело довжини)
             variant = row.get("variant", "")
             if variant:
                 match = re.match(r'^(\d+(?:\.\d+)?)\s*(?:мм|mm)?$', str(variant).strip(), re.IGNORECASE)
@@ -242,7 +257,6 @@ def get_catalog_context():
                     if nums:
                         length_info = f", {nums[0]} мм"
 
-            # 2) Якщо в variant не знайшли, шукаємо в інших можливих стовпцях
             if not length_info:
                 for key in ["length", "довжина", "розмір", "size"]:
                     val = row.get(key)
@@ -252,7 +266,6 @@ def get_catalog_context():
                             length_info = f", {nums[0]} мм"
                             break
 
-            # 3) Якщо все ще немає, шукаємо 3-4 значне число прямо в назві товару
             if not length_info:
                 nums = re.findall(r'\b(\d{3,4})\b', name)
                 if nums:
@@ -625,11 +638,10 @@ def tg_webhook():
                         })
                     user_states[user_id] = "MAIN"
                 else:
-                    # Послідовність пошуку відповіді: FAQ -> Навчання -> DeepSeek (з автододаванням)
+                    # Послідовність: Ескалація -> FAQ -> Навчання (нечітке) -> DeepSeek (з автододаванням)
                     ai_answer = None
-                    used_training = False
 
-                    # 1. Перевірка ескалації
+                    # 1. Перевірка на скарги
                     escalation_keywords = ['скарга', 'повернення', 'брак', 'погано', 'не працює', 
                                            'не задоволений', 'жахливо', 'відмовляюсь', 'розчарований',
                                            'проблема', 'не подобається', 'обурений']
@@ -640,15 +652,14 @@ def tg_webhook():
                     elif text.lower().strip() in FAQ_ANSWERS:
                         ai_answer = FAQ_ANSWERS[text.lower().strip()]
                     
-                    # 3. Таблиця "Навчання"
+                    # 3. Нечіткий пошук в Навчанні
                     elif find_in_training(text):
                         ai_answer = find_in_training(text)
-                        used_training = True
 
-                    # 4. DeepSeek + автоматичне запам'ятовування
+                    # 4. DeepSeek + автонавчання
                     if ai_answer is None:
                         ai_answer = ask_deepseek(user_id, text)
-                        # Якщо це не помилка, додаємо в навчання
+                        # Записуємо, якщо це не помилка і не ескалація
                         if not ai_answer.startswith("Ой, шось я завис") and not ai_answer.startswith("Перемикаю"):
                             add_to_training(text, ai_answer)
                     
