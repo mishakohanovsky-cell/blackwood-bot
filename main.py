@@ -148,10 +148,9 @@ STATES_FILE = os.path.join(BASE_DIR, 'user_states.json')
 HISTORY_FILE = os.path.join(BASE_DIR, 'chat_history.json')
 
 CATALOG_CACHE = {"text": "", "last_update": datetime.min}
-TRAINING_CACHE = {"data": [], "last_update": datetime.min}  # Тепер це список кортежів (питання, відповідь)
+TRAINING_CACHE = {"data": [], "last_update": datetime.min}
 
 def get_gsheet_sheet(sheet_name):
-    """Отримує доступ до вказаного аркуша в Google Sheets."""
     gc = gspread.service_account(filename=os.path.join(BASE_DIR, "credentials.json"))
     sh = gc.open_by_key(SHEET_ID)
     try:
@@ -160,7 +159,6 @@ def get_gsheet_sheet(sheet_name):
         return None
 
 def load_training_data():
-    """Завантажує всі питання-відповіді з аркуша 'Навчання' у список кортежів."""
     global TRAINING_CACHE
     if (datetime.now() - TRAINING_CACHE["last_update"]).seconds < 120:
         return TRAINING_CACHE["data"]
@@ -169,7 +167,7 @@ def load_training_data():
         ws = get_gsheet_sheet("Навчання")
         if ws is None:
             return []
-        rows = ws.get_all_values()[1:]  # Пропускаємо заголовок
+        rows = ws.get_all_values()[1:]
         data = []
         for row in rows:
             if len(row) >= 2 and row[0].strip() and row[1].strip():
@@ -184,22 +182,18 @@ def load_training_data():
         return TRAINING_CACHE.get("data", [])
 
 def find_in_training(user_question):
-    """Нечіткий пошук: шукає питання, яке містить всі ключові слова із запиту користувача."""
     data = load_training_data()
     if not data:
         return None
 
-    # Розбиваємо запит користувача на ключові слова довжиною > 2 символів
     keywords = [word for word in user_question.lower().split() if len(word) > 2]
     if not keywords:
         return None
 
-    # Спочатку шукаємо точний збіг (пріоритет)
     for question, answer in data:
         if question == user_question.lower().strip():
             return answer
 
-    # Потім шукаємо, де всі ключові слова присутні в питанні
     for question, answer in data:
         if all(keyword in question for keyword in keywords):
             return answer
@@ -207,11 +201,9 @@ def find_in_training(user_question):
     return None
 
 def add_to_training(question, answer):
-    """Додає нову пару питання-відповідь в аркуш 'Навчання', якщо питання ще немає (точний збіг)."""
     try:
         data = load_training_data()
         normalized_question = question.strip().lower()
-        # Перевіряємо, чи є вже такий точний запис
         if any(q == normalized_question for q, _ in data):
             return
         ws = get_gsheet_sheet("Навчання")
@@ -221,13 +213,11 @@ def add_to_training(question, answer):
             ws = sh.add_worksheet(title="Навчання", rows="1000", cols="3")
             ws.append_row(["Питання", "Відповідь", "Дата додавання"])
         ws.append_row([question.strip(), answer, datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-        # Оновлюємо кеш
         TRAINING_CACHE["data"].append((normalized_question, answer))
     except Exception as e:
         print(f"Помилка додавання до навчання: {e}")
 
 def get_catalog_context():
-    """Формує текст каталогу з Google Sheets, додаючи розмір (довжину) зі стовпця variant, якщо він є."""
     global CATALOG_CACHE
     if (datetime.now() - CATALOG_CACHE["last_update"]).seconds < 300:
         return CATALOG_CACHE["text"]
@@ -297,7 +287,6 @@ def append_history(user_id, role, text):
     save_json(HISTORY_FILE, hist_db)
 
 def ask_deepseek(user_id, prompt):
-    """Запит до DeepSeek через бібліотеку openai (працює на Render)"""
     if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.startswith("sk-ТВІЙ"):
         return "Помилка: API-ключ DeepSeek не налаштовано. Передаю адміну."
 
@@ -338,15 +327,15 @@ def ask_deepseek(user_id, prompt):
         return f"Ой, шось я завис. Помилка ШІ: {e}"
 
 # ==========================================
-# 🎛 INLINE-КЛАВІАТУРИ БОТА
+# 🎛 INLINE-КЛАВІАТУРИ БОТА (ОНЦОВЛЕНО URL НА RENDER)
 # ==========================================
 KEYBOARDS = {
     "MAIN": {"inline_keyboard": [
         [{"text": "Статус замовлення", "callback_data": "menu_status"}],
         [{"text": "⚙️ Наші послуги", "callback_data": "menu_services"}],
-        [{"text": "📦 Відкрити Каталог", "web_app": {"url": "https://habs.pythonanywhere.com/"}}],
+        [{"text": "📦 Відкрити Каталог", "web_app": {"url": "https://blackwood-bot.onrender.com/"}}],
         [{"text": "👨‍🔧 Зв'язок з менеджером", "callback_data": "menu_manager"}],
-        [{"text": "📸 Наші роботи", "web_app": {"url": "https://habs.pythonanywhere.com/works"}}],
+        [{"text": "📸 Наші роботи", "web_app": {"url": "https://blackwood-bot.onrender.com/works"}}],
         [{"text": "ℹ️ Інфо / Доставка", "callback_data": "menu_delivery"}]
     ]},
     "SERVICES": {"inline_keyboard": [
@@ -641,25 +630,20 @@ def tg_webhook():
                     # Послідовність: Ескалація -> FAQ -> Навчання (нечітке) -> DeepSeek (з автододаванням)
                     ai_answer = None
 
-                    # 1. Перевірка на скарги
                     escalation_keywords = ['скарга', 'повернення', 'брак', 'погано', 'не працює', 
                                            'не задоволений', 'жахливо', 'відмовляюсь', 'розчарований',
                                            'проблема', 'не подобається', 'обурений']
                     if any(keyword in text.lower() for keyword in escalation_keywords):
                         ai_answer = "Перемикаю на живого менеджера, він вирішить ваше питання"
                     
-                    # 2. FAQ
                     elif text.lower().strip() in FAQ_ANSWERS:
                         ai_answer = FAQ_ANSWERS[text.lower().strip()]
                     
-                    # 3. Нечіткий пошук в Навчанні
                     elif find_in_training(text):
                         ai_answer = find_in_training(text)
 
-                    # 4. DeepSeek + автонавчання
                     if ai_answer is None:
                         ai_answer = ask_deepseek(user_id, text)
-                        # Записуємо, якщо це не помилка і не ескалація
                         if not ai_answer.startswith("Ой, шось я завис") and not ai_answer.startswith("Перемикаю"):
                             add_to_training(text, ai_answer)
                     
