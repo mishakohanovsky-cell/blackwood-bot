@@ -559,7 +559,7 @@ def tg_webhook():
             user_name = msg.get("from", {}).get("first_name", "Клієнт")
             thread_id, crm_db = get_or_create_topic(user_id, user_name)
 
-            # ⚡️ ОБРОБКА EXCEL-ФАЙЛУ для оновлення каталогу
+                        # ⚡️ ОБРОБКА EXCEL-ФАЙЛУ для оновлення каталогу
             if "document" in msg:
                 doc = msg["document"]
                 file_name = doc.get("file_name", "")
@@ -569,6 +569,7 @@ def tg_webhook():
                         "text": "⏳ Отримав Excel-файл, аналізую та оновлюю каталог..."
                     })
                     try:
+                        # Завантажуємо файл
                         file_id = doc["file_id"]
                         file_info = send_tg_request("getFile", {"file_id": file_id})
                         file_path = file_info["result"]["file_path"]
@@ -581,15 +582,20 @@ def tg_webhook():
                         sh = gc.open_by_key(SHEET_ID)
                         sheet1 = sh.sheet1
 
+                        # Збираємо існуючі ID для оновлення
                         existing_ids = {}
                         all_rows = sheet1.get_all_values()
                         for idx, row in enumerate(all_rows[1:], start=2):
                             if len(row) > 0 and row[0].strip():
                                 existing_ids[row[0].strip()] = idx
 
-                        updated = 0
-                        added = 0
+                        # Підготовка даних
+                        rows_to_update = []  # для batch_update
+                        rows_to_append = []  # для append_rows
                         current_category = "Без категорії"
+                        updated_count = 0
+                        added_count = 0
+                        batch_update_data = []  # накопичуємо оновлення
 
                         for row in ws.iter_rows(min_row=1, values_only=True):
                             if not row or all(cell is None for cell in row):
@@ -632,18 +638,40 @@ def tg_webhook():
 
                             if code in existing_ids:
                                 row_num = existing_ids[code]
-                                sheet1.update(f'A{row_num}:I{row_num}', [new_row])
-                                updated += 1
+                                # Додаємо в пакетне оновлення
+                                batch_update_data.append({
+                                    'range': f'A{row_num}:I{row_num}',
+                                    'values': [new_row]
+                                })
+                                updated_count += 1
                             else:
-                                sheet1.append_row(new_row)
-                                added += 1
+                                rows_to_append.append(new_row)
+                                added_count += 1
 
+                        # Виконуємо пакетне оновлення (до 50 рядків за раз)
+                        if batch_update_data:
+                            # Розбиваємо на групи по 50
+                            for i in range(0, len(batch_update_data), 50):
+                                chunk = batch_update_data[i:i+50]
+                                sheet1.batch_update(chunk)
+                                # невелика пауза, щоб не перевищити ліміт
+                                import time
+                                time.sleep(1)
+
+                        # Додаємо нові рядки (також групами до 50)
+                        if rows_to_append:
+                            for i in range(0, len(rows_to_append), 50):
+                                chunk = rows_to_append[i:i+50]
+                                sheet1.append_rows(chunk)
+                                time.sleep(1)
+
+                        # Скидаємо кеш каталогу
                         global CATALOG_CACHE
                         CATALOG_CACHE["last_update"] = datetime.min
 
                         send_tg_request("sendMessage", {
                             "chat_id": user_id,
-                            "text": f"✅ Каталог оновлено! Оновлено: {updated} товарів, додано: {added}."
+                            "text": f"✅ Каталог оновлено! Оновлено: {updated_count} товарів, додано: {added_count}."
                         })
                     except Exception as e:
                         send_tg_request("sendMessage", {
