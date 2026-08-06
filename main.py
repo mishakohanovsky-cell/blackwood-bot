@@ -5,6 +5,7 @@ import gspread
 import re
 import io
 import openpyxl
+import time
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file
 
@@ -170,6 +171,7 @@ STATES_FILE = os.path.join(BASE_DIR, 'user_states.json')
 HISTORY_FILE = os.path.join(BASE_DIR, 'chat_history.json')
 
 CATALOG_CACHE = {"text": "", "last_update": datetime.min}
+PRODUCTS_CACHE = {"data": {"discount": 0, "items": []}, "last_update": datetime.min}
 TRAINING_CACHE = {"data": [], "last_update": datetime.min}
 
 def get_gsheet_sheet(sheet_name):
@@ -333,9 +335,9 @@ KEYBOARDS = {
     "MAIN": {"inline_keyboard": [
         [{"text": "Статус замовлення", "callback_data": "menu_status"}],
         [{"text": "⚙️ Наші послуги", "callback_data": "menu_services"}],
-        [{"text": "📦 Відкрити Каталог", "web_app": {"url": "https://habs.pythonanywhere.com/"}}],
+        [{"text": "📦 Відкрити Каталог", "web_app": {"url": "https://blackwood-bot.onrender.com/"}}],
         [{"text": "👨‍🔧 Зв'язок з менеджером", "callback_data": "menu_manager"}],
-        [{"text": "📸 Наші роботи", "web_app": {"url": "https://habs.pythonanywhere.com/works"}}],
+        [{"text": "📸 Наші роботи", "web_app": {"url": "https://blackwood-bot.onrender.com/works"}}],
         [{"text": "ℹ️ Інфо / Доставка", "callback_data": "menu_delivery"}]
     ]},
     "SERVICES": {"inline_keyboard": [
@@ -559,7 +561,7 @@ def tg_webhook():
             user_name = msg.get("from", {}).get("first_name", "Клієнт")
             thread_id, crm_db = get_or_create_topic(user_id, user_name)
 
-                        # ⚡️ ОБРОБКА EXCEL-ФАЙЛУ для оновлення каталогу
+            # ⚡️ ОБРОБКА EXCEL-ФАЙЛУ для оновлення каталогу
             if "document" in msg:
                 doc = msg["document"]
                 file_name = doc.get("file_name", "")
@@ -569,7 +571,6 @@ def tg_webhook():
                         "text": "⏳ Отримав Excel-файл, аналізую та оновлюю каталог..."
                     })
                     try:
-                        # Завантажуємо файл
                         file_id = doc["file_id"]
                         file_info = send_tg_request("getFile", {"file_id": file_id})
                         file_path = file_info["result"]["file_path"]
@@ -582,30 +583,25 @@ def tg_webhook():
                         sh = gc.open_by_key(SHEET_ID)
                         sheet1 = sh.sheet1
 
-                        # Збираємо існуючі ID для оновлення
                         existing_ids = {}
                         all_rows = sheet1.get_all_values()
                         for idx, row in enumerate(all_rows[1:], start=2):
                             if len(row) > 0 and row[0].strip():
                                 existing_ids[row[0].strip()] = idx
 
-                        # Підготовка даних
-                        rows_to_update = []  # для batch_update
-                        rows_to_append = []  # для append_rows
-                        current_category = "Без категорії"
                         updated_count = 0
                         added_count = 0
-                        batch_update_data = []  # накопичуємо оновлення
+                        current_category = "Без категорії"
+                        batch_update_data = []
+                        rows_to_append = []
 
                         for row in ws.iter_rows(min_row=1, values_only=True):
                             if not row or all(cell is None for cell in row):
                                 continue
-                            # Визначаємо, чи це заголовок категорії
                             if row[0] and row[0] != "№ п/п" and (row[1] is None or str(row[1]).strip() == ""):
                                 cat_path = str(row[0]).strip()
                                 current_category = cat_path.split("/")[-1].strip()
                                 continue
-                            # Пропускаємо рядки без коду товару
                             if row[1] is None or str(row[1]).strip() == "":
                                 continue
                             code = str(row[1]).strip()
@@ -638,7 +634,6 @@ def tg_webhook():
 
                             if code in existing_ids:
                                 row_num = existing_ids[code]
-                                # Додаємо в пакетне оновлення
                                 batch_update_data.append({
                                     'range': f'A{row_num}:I{row_num}',
                                     'values': [new_row]
@@ -648,26 +643,22 @@ def tg_webhook():
                                 rows_to_append.append(new_row)
                                 added_count += 1
 
-                        # Виконуємо пакетне оновлення (до 50 рядків за раз)
                         if batch_update_data:
-                            # Розбиваємо на групи по 50
                             for i in range(0, len(batch_update_data), 50):
                                 chunk = batch_update_data[i:i+50]
                                 sheet1.batch_update(chunk)
-                                # невелика пауза, щоб не перевищити ліміт
-                                import time
                                 time.sleep(1)
 
-                        # Додаємо нові рядки (також групами до 50)
                         if rows_to_append:
                             for i in range(0, len(rows_to_append), 50):
                                 chunk = rows_to_append[i:i+50]
                                 sheet1.append_rows(chunk)
                                 time.sleep(1)
 
-                        # Скидаємо кеш каталогу
-                        global CATALOG_CACHE
+                        # Скидаємо кеші
+                        global CATALOG_CACHE, PRODUCTS_CACHE
                         CATALOG_CACHE["last_update"] = datetime.min
+                        PRODUCTS_CACHE["last_update"] = datetime.min
 
                         send_tg_request("sendMessage", {
                             "chat_id": user_id,
@@ -859,6 +850,12 @@ def get_works():
         return jsonify([])
 
 def load_products_with_discount(user_id=None):
+    # Кешуємо тільки загальний каталог (без знижок для конкретного користувача)
+    if not user_id or user_id == "FROM_WEB_BROWSER":
+        global PRODUCTS_CACHE
+        if (datetime.now() - PRODUCTS_CACHE["last_update"]).seconds < 300:
+            return PRODUCTS_CACHE["data"]
+
     try:
         gc = gspread.service_account(filename=os.path.join(BASE_DIR, "credentials.json"))
         sh = gc.open_by_key(SHEET_ID)
@@ -887,15 +884,20 @@ def load_products_with_discount(user_id=None):
                     pass
 
         products_dict = {}
+        count = 0
         for row in sh.sheet1.get_all_records():
-            if row.get("id") and row.get("name"):
-                name = str(row["name"]).strip()
-                if name not in products_dict:
-                    products_dict[name] = {"name": name, "category": str(row.get("category", "Всі")), "image": str(row.get("image", "")), "description": str(row.get("description", "")), "variants": []}
-                base_price, old_price = float(row.get("price") or 0), float(row.get("old_price") or 0)
-                if discount_pct > 0 and base_price > 0:
-                    old_price, base_price = base_price, round(base_price * (1 - discount_pct / 100), 2)
-                products_dict[name]["variants"].append({"id": str(row["id"]), "variant_name": str(row.get("variant", "")).strip(), "price": base_price, "old_price": old_price, "status": str(row.get("status", "")).strip() or "В наявності"})
+            if not row.get("id") or not row.get("name"):
+                continue
+            name = str(row["name"]).strip()
+            if name not in products_dict:
+                products_dict[name] = {"name": name, "category": str(row.get("category", "Всі")), "image": str(row.get("image", "")), "description": str(row.get("description", "")), "variants": []}
+            base_price, old_price = float(row.get("price") or 0), float(row.get("old_price") or 0)
+            if discount_pct > 0 and base_price > 0:
+                old_price, base_price = base_price, round(base_price * (1 - discount_pct / 100), 2)
+            products_dict[name]["variants"].append({"id": str(row["id"]), "variant_name": str(row.get("variant", "")).strip(), "price": base_price, "old_price": old_price, "status": str(row.get("status", "")).strip() or "В наявності"})
+            count += 1
+            if count >= 200:  # Обмеження для швидкості
+                break
 
         try:
             dsp_ws = sh.worksheet("Залишки ДСП")
@@ -918,7 +920,12 @@ def load_products_with_discount(user_id=None):
         except Exception as e:
             print(f"Помилка парсингу Залишків ДСП: {e}")
 
-        return {"discount": discount_pct, "items": list(products_dict.values())}
+        result = {"discount": discount_pct, "items": list(products_dict.values())}
+        # Кешуємо тільки загальний каталог
+        if not user_id or user_id == "FROM_WEB_BROWSER":
+            PRODUCTS_CACHE["data"] = result
+            PRODUCTS_CACHE["last_update"] = datetime.now()
+        return result
     except:
         return {"discount": 0, "items": []}
 
