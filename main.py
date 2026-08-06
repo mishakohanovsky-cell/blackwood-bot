@@ -3,6 +3,8 @@ import os
 import requests
 import gspread
 import re
+import io
+import openpyxl
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file
 
@@ -557,6 +559,100 @@ def tg_webhook():
             user_name = msg.get("from", {}).get("first_name", "Клієнт")
             thread_id, crm_db = get_or_create_topic(user_id, user_name)
 
+            # ⚡️ ОБРОБКА EXCEL-ФАЙЛУ для оновлення каталогу
+            if "document" in msg:
+                doc = msg["document"]
+                file_name = doc.get("file_name", "")
+                if file_name.endswith(".xlsx") or file_name.endswith(".xls"):
+                    send_tg_request("sendMessage", {
+                        "chat_id": user_id,
+                        "text": "⏳ Отримав Excel-файл, аналізую та оновлюю каталог..."
+                    })
+                    try:
+                        file_id = doc["file_id"]
+                        file_info = send_tg_request("getFile", {"file_id": file_id})
+                        file_path = file_info["result"]["file_path"]
+                        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+                        file_content = requests.get(file_url).content
+                        wb = openpyxl.load_workbook(io.BytesIO(file_content))
+                        ws = wb.active
+
+                        gc = gspread.service_account(filename=os.path.join(BASE_DIR, "credentials.json"))
+                        sh = gc.open_by_key(SHEET_ID)
+                        sheet1 = sh.sheet1
+
+                        existing_ids = {}
+                        all_rows = sheet1.get_all_values()
+                        for idx, row in enumerate(all_rows[1:], start=2):
+                            if len(row) > 0 and row[0].strip():
+                                existing_ids[row[0].strip()] = idx
+
+                        updated = 0
+                        added = 0
+                        current_category = "Без категорії"
+
+                        for row in ws.iter_rows(min_row=1, values_only=True):
+                            if not row or all(cell is None for cell in row):
+                                continue
+                            # Визначаємо, чи це заголовок категорії
+                            if row[0] and row[0] != "№ п/п" and (row[1] is None or str(row[1]).strip() == ""):
+                                cat_path = str(row[0]).strip()
+                                current_category = cat_path.split("/")[-1].strip()
+                                continue
+                            # Пропускаємо рядки без коду товару
+                            if row[1] is None or str(row[1]).strip() == "":
+                                continue
+                            code = str(row[1]).strip()
+                            name = str(row[2]).strip() if row[2] else ""
+                            price_str = str(row[3]).replace(',', '.') if row[3] else "0"
+                            try:
+                                price = float(price_str)
+                            except:
+                                price = 0.0
+                            qty_str = str(row[5]) if len(row) > 5 and row[5] else ""
+                            qty = 0
+                            if qty_str:
+                                try:
+                                    qty = int(float(qty_str.replace(',', '.')))
+                                except:
+                                    qty = 0
+                            status_text = f"В наявності: {qty} шт." if qty > 0 else ""
+
+                            new_row = [
+                                code,
+                                name,
+                                current_category,
+                                "",
+                                price,
+                                "",
+                                "",
+                                "",
+                                status_text
+                            ]
+
+                            if code in existing_ids:
+                                row_num = existing_ids[code]
+                                sheet1.update(f'A{row_num}:I{row_num}', [new_row])
+                                updated += 1
+                            else:
+                                sheet1.append_row(new_row)
+                                added += 1
+
+                        global CATALOG_CACHE
+                        CATALOG_CACHE["last_update"] = datetime.min
+
+                        send_tg_request("sendMessage", {
+                            "chat_id": user_id,
+                            "text": f"✅ Каталог оновлено! Оновлено: {updated} товарів, додано: {added}."
+                        })
+                    except Exception as e:
+                        send_tg_request("sendMessage", {
+                            "chat_id": user_id,
+                            "text": f"❌ Помилка оновлення каталогу: {str(e)[:200]}"
+                        })
+                    return "OK", 200
+
+            # Обробка фото
             if "photo" in msg:
                 caption = msg.get("caption", "").strip() if msg.get("caption") else ""
                 if caption:
